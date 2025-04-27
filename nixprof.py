@@ -69,29 +69,29 @@ def nixprof():
 @click.argument("cmd", nargs=-1, type=click.UNPROCESSED)
 def record(cmd, out):
     """Record timings of a `nix-build`/`nix build` invocation."""
-    subprocess.run(f"\\time {' '.join(cmd)} --log-format internal-json 2>&1 | ts -s -m \"[%.s]\" > {out}", shell=True, check=True)
+    subprocess.run(f"\\time {' '.join(cmd)} 2>&1 | ts -s -m \"[%.s]\" > {out}", shell=True, check=True)
 
 DOTFILE = "nixprof.dot"
 CHROMEFILE = "nixprof.trace_event"
 
 def parse(input):
     g = networkx.DiGraph(rankdir="BT")
-    id_to_drv = {}
     for line in input.readlines():
-        if m := re.match(r"\[([^]]*)\] @nix ", line):
+        if m := re.match(r"\[([^]]*)\] @lake ", line):
             time = float(m.group(1))
             entry = json.loads(line[m.end(0):])
-            if entry["action"] == "start" and entry["type"] == 105:  # 105 = actBuild
-                drv = entry["fields"][0]
-                id_to_drv[entry["id"]] = drv
-                name = re.search(r"-(.*)\.drv", drv)[1]
-                g.add_node(drv, drv_name=name, start=time)
+            if entry["action"] == "start":  # 105 = actBuild
+                drv = entry["name"]
+                g.add_node(drv, drv_name=drv, start=time)
+                for dep in entry["references"]:
+                    if dep in g:
+                        g.add_edge(name, dep)
             elif entry["action"] == "stop":
-                if drv := id_to_drv.get(entry["id"]):
-                    g.nodes[drv]["stop"] = time
-                    g.nodes[drv]["time"] = time - g.nodes[drv]["start"]
+                drv = entry["name"]
+                g.nodes[drv]["stop"] = time
+                g.nodes[drv]["time"] = time - g.nodes[drv]["start"]
 
-    return (g, id_to_drv)
+    return g
 
 @nixprof.command()
 @click.option("-i", "--in", "input", default="nixprof.log", help="log input filename", type=click.File('r'))
@@ -107,13 +107,7 @@ def parse(input):
 @click.option("--filter")
 def report(input: TextIO, tred, print_crit_path, print_avg_crit, print_sim_times, save_dot, save_chrome_trace, all, merge_into_pred, merge_into_succ, filter):
     """Report various metrics of a recorded log."""
-    g, id_to_drv = parse(input)
-
-    drv_data = json.loads(subprocess.run(["nix", "--extra-experimental-features", "nix-command", "path-info", "--json", "--derivation"] + list(g), capture_output=True, check=True).stdout)
-    for d in drv_data:
-        for dep in d["references"]:
-            if dep in g:
-                g.add_edge(d["path"], dep)
+    g = parse(input)
 
     if tred:
         g2: networkx.DiGraph = networkx.transitive_reduction(g)
