@@ -85,7 +85,7 @@ def parse(input):
                 g.add_node(drv, drv_name=drv, start=time)
                 for dep in entry["references"]:
                     if dep in g:
-                        g.add_edge(name, dep)
+                        g.add_edge(drv, dep)
             elif entry["action"] == "stop":
                 drv = entry["name"]
                 g.nodes[drv]["stop"] = time
