@@ -184,10 +184,6 @@ def report(input: TextIO, tred, print_crit_path, print_rebuild_crit_path, print_
             for (u, _, data) in g.in_edges(v, data=True):
                 if not filter_fn(u):
                     continue
-                meta_dist = dist["meta"][v] + g.nodes[u]["time"]
-                if meta_dist > dist["meta"][u]:
-                    dist["meta"][u] = meta_dist
-                    prev["meta"][u] = (v, "meta")
                 if data["isExported"]:
                     pub_cat = "public" if not data["isMeta"] else "meta"
                     pub_dist = dist[pub_cat][v] + g.nodes[u]["time"]
@@ -200,6 +196,18 @@ def report(input: TextIO, tred, print_crit_path, print_rebuild_crit_path, print_
                 if priv_dist > dist["private"][u]:
                     dist["private"][u] = priv_dist
                     prev["private"][u] = (v, priv_cat)
+
+                # `meta` distance is the maximum of `private` of this module and `meta` of all
+                # imports; IOW, `meta import` is like a direct dependency on *all* transitive
+                # imports
+
+                if priv_dist > dist["meta"][u]:
+                    dist["meta"][u] = priv_dist
+                    prev["meta"][u] = (v, priv_cat)
+
+                if dist["meta"][v] > dist["meta"][u]:
+                    dist["meta"][u] = dist["meta"][v]
+                    prev["meta"][u] = (v, "meta")
 
         # Find the node with the maximum distance
         end = (max(dist["private"], key=dist["private"].get), "private")
