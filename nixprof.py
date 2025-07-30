@@ -83,13 +83,17 @@ def parse(input):
             if entry["action"] == "start":  # 105 = actBuild
                 drv = entry["name"]
                 g.add_node(drv, drv_name=drv, start=time)
-                for dep in entry["references"]:
-                    if dep in g:
-                        g.add_edge(drv, dep)
             elif entry["action"] == "stop":
                 drv = entry["name"]
                 g.nodes[drv]["stop"] = time
                 g.nodes[drv]["time"] = time - g.nodes[drv]["start"]
+
+    lake_out = subprocess.check_output(["lake", "query",  "--json"] + [f"+{drv}:header" for drv in g], text=True)
+    for drv, header in zip(g, lake_out.split("\n")):
+        header = json.loads(header)
+        for i in header["imports"]:
+            if i["module"] in g:
+                g.add_edge(drv, i["module"], **i)
 
     return g
 
@@ -97,6 +101,7 @@ def parse(input):
 @click.option("-i", "--in", "input", default="nixprof.log", help="log input filename", type=click.File('r'))
 @click.option("-t", "--tred", help="remove transitive edges (can speed up and declutter dot graph display)", is_flag=True)
 @click.option("-p", "--print-crit-path", help="print critical (longest) path", is_flag=True)
+@click.option("-r", "--print-rebuild-crit-path", help="print critical (longest) path from module-system-aware rebuilds", is_flag=True)
 @click.option("-a", "--print-avg-crit", help="print average contribution to critical paths", is_flag=True)
 @click.option("-s", "--print-sim-times", help="print simulated build times by processor count up to optimal count", is_flag=True)
 @click.option("-d", "--save-dot", is_flag=False, flag_value=DOTFILE, help="write dot graph to file", type=click.File('w'))
@@ -105,7 +110,7 @@ def parse(input):
 @click.option("--merge-into-pred", help="for each derivation with exactly one predecessor (dependency) and whose name matches the given regex, merge build time and dependents into that predecessor")
 @click.option("--merge-into-succ", help="for each derivation with exactly one successor (dependent) and whose name matches the given regex, merge build time and dependencies into that successor")
 @click.option("--filter")
-def report(input: TextIO, tred, print_crit_path, print_avg_crit, print_sim_times, save_dot, save_chrome_trace, all, merge_into_pred, merge_into_succ, filter):
+def report(input: TextIO, tred, print_crit_path, print_rebuild_crit_path, print_avg_crit, print_sim_times, save_dot, save_chrome_trace, all, merge_into_pred, merge_into_succ, filter):
     """Report various metrics of a recorded log."""
     g = parse(input)
 
@@ -163,6 +168,59 @@ def report(input: TextIO, tred, print_crit_path, print_avg_crit, print_sim_times
         print(tabulate(tab, headers=["time [s]", "", "[cum]", "", "drv"], floatfmt=[".1f", ".1%", ".1f", ".1%"]))
         print()
 
+    if print_rebuild_crit_path or all:
+        # Compute longest path explicitly by iterating over the topological sort
+        cats = [
+            "public",  # critical path for importing this module publicly
+            "private",  # critical path for building this module itself
+            "meta",  # critical path for `meta import`ing this module
+        ]
+        dist = {cat: {v: (g.nodes[v]["time"] if filter_fn(v) else 0) for v in g} for cat in cats}
+        prev = {cat: {v: None for v in g} for cat in cats}
+
+        for v in reversed(list(networkx.topological_sort(g))):
+            if not filter_fn(v):
+                continue
+            for (u, _, data) in g.in_edges(v, data=True):
+                if not filter_fn(u):
+                    continue
+                meta_dist = dist["meta"][v] + g.nodes[u]["time"]
+                if meta_dist > dist["meta"][u]:
+                    dist["meta"][u] = meta_dist
+                    prev["meta"][u] = (v, "meta")
+                if data["isExported"]:
+                    pub_cat = "public" if not data["isMeta"] else "meta"
+                    pub_dist = dist[pub_cat][v] + g.nodes[u]["time"]
+                    if pub_dist > dist["public"][u]:
+                        dist["public"][u] = pub_dist
+                        prev["public"][u] = (v, pub_cat)
+
+                priv_cat = "meta" if data["isMeta"] else "private" if data["importAll"] else "public"
+                priv_dist = dist[priv_cat][v] + g.nodes[u]["time"]
+                if priv_dist > dist["private"][u]:
+                    dist["private"][u] = priv_dist
+                    prev["private"][u] = (v, priv_cat)
+
+        # Find the node with the maximum distance
+        end = (max(dist["private"], key=dist["private"].get), "private")
+        rebuild_crit_path = []
+        while end is not None:
+            rebuild_crit_path.append(end)
+            end = prev[end[1]][end[0]]
+        rebuild_crit_path = list(reversed(rebuild_crit_path))
+
+        print("rebuild critical path")
+        max_time = sum([g.nodes[u]["time"] for u, _ in rebuild_crit_path])
+        cum_time = 0
+        tab = []
+        for (u, cat) in rebuild_crit_path:
+            time = g.nodes[u]["time"]
+            cum_time += time
+            tab.append((time, time / max_time, cum_time, cum_time / max_time, g.nodes[u]["drv_name"] + (f" [{cat}]" if cat != "public" else "")))
+        print(tabulate(tab, headers=["time [s]", "", "[cum]", "", "drv"], floatfmt=[".1f", ".1%", ".1f", ".1%"]))
+        print()
+
+
     if print_avg_crit or all:
         avg_contrib = defaultdict(lambda: 0)
         for u in g.nodes:
@@ -216,6 +274,10 @@ def report(input: TextIO, tred, print_crit_path, print_avg_crit, print_sim_times
 
         for i in range(len(crit_path) - 1):
             g[crit_path[i+1]][crit_path[i]]["color"] = "red"
+
+        for u, v, data in g.edges(data=True):
+            if not data.get("isExported"):
+                data["style"] = "dotted"
 
         networkx.nx_pydot.write_dot(g, save_dot or DOTFILE)
 
