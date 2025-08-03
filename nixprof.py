@@ -77,16 +77,13 @@ CHROMEFILE = "nixprof.trace_event"
 def parse(input):
     g = networkx.DiGraph(rankdir="BT")
     for line in input.readlines():
-        if m := re.match(r"\[([^]]*)\] @lake ", line):
-            time = float(m.group(1))
-            entry = json.loads(line[m.end(0):])
-            if entry["action"] == "start":  # 105 = actBuild
-                drv = entry["name"]
-                g.add_node(drv, drv_name=drv, start=time)
-            elif entry["action"] == "stop":
-                drv = entry["name"]
-                g.nodes[drv]["stop"] = time
-                g.nodes[drv]["time"] = time - g.nodes[drv]["start"]
+        if m := re.match(r"\[([^]]*)\] .* Built ([\w.]+) \(([0-9.]+)(m?)s\)", line):
+            stop = float(m.group(1))
+            drv = m.group(2)
+            dur = float(m.group(3))
+            if m.group(4) == "m":
+                dur /= 1000
+            g.add_node(drv, drv_name=drv, start=stop - dur, stop=stop, time=dur)
 
     lake_out = subprocess.check_output(["lake", "query",  "--json"] + [f"+{drv}:header" for drv in g], text=True)
     for drv, header in zip(g, lake_out.split("\n")):
