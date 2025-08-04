@@ -85,7 +85,7 @@ def parse(input):
                 dur /= 1000
             g.add_node(drv, drv_name=drv, start=stop - dur, stop=stop, time=dur)
 
-    lake_out = subprocess.check_output(["lake", "query",  "--json"] + [f"+{drv}:header" for drv in g], text=True)
+    lake_out = subprocess.check_output(["lake", "query",  "--no-build", "--json"] + [f"+{drv}:header" for drv in g], text=True)
     for drv, header in zip(g, lake_out.split("\n")):
         header = json.loads(header)
         for i in header["imports"]:
