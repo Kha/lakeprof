@@ -69,7 +69,7 @@ def lakeprof():
 @click.argument("cmd", nargs=-1, type=click.UNPROCESSED)
 def record(cmd, out):
     """Record timings of a lake build` invocation."""
-    subprocess.run(f"set -o -pipefail; \\time {' '.join(cmd)} 2>&1 | ts -s -m \"[%.s]\" | tee {out}", shell=True, check=True)
+    subprocess.run(f"set -o pipefail; \\time {' '.join(cmd)} 2>&1 | ts -s -m \"[%.s]\" | tee {out}", shell=True, check=True)
 
 DOTFILE = "lakeprof.dot"
 CHROMEFILE = "lakeprof.trace_event"
