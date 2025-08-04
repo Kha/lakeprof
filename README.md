@@ -1,28 +1,24 @@
-# Nixprof
+# lakeprof
 
-Nixprof is a tool for profiling and visualizing build times spent on a Nix build graph.
+lakeprof is a tool for profiling and visualizing build times spent on a Lake build graph.
 
 ## Installation
 
-Nixprof **requires Nix 2.4+** for its `internal-json` logging format and some `nix` command functionality
-
-...so we may as well use flakes
-
 ``` sh
-nix shell github:Kha/nixprof
+nix shell github:Kha/lakeprof
 ```
 
 ## Usage
 
-First you need to record Nix building the desired graph once:
+First you need to record Lake building the desired graph once:
 
 ``` sh
-nixprof record nix-build ...  # or `nix build ...`
+lakeprof record lake build ...
 ```
-This will save the Nix log annotated with timestamps in `nixprof.log`.
-You can use `-o` to select a different output filename, which I like to use to record the specific commit and number of cores:
+This will save the Lake log annotated with timestamps in `lakeprof.log`.
+You can use `-o` to select a different output filename, which I like to use to record the specific commit and number of parallel builds:
 ``` sh
-nixprof record -o $(git rev-parse @).json.16 nix build .#lean-all --option max-jobs 16
+lakeprof record -o $(git rev-parse @).json.16 lake build -j16
 ```
 
 Make sure that the parts you are interested in are actually (re)built (and not fetched from a substituter), e.g. by introducing trivial changes in the source.
@@ -30,10 +26,10 @@ Make sure that the parts you are interested in are actually (re)built (and not f
 echo "-- $(date)" >> src/Init/Prelude.lean
 ```
 
-Now you can use `nixprof report` on that file to create various reports:
+Now you can use `lakeprof report` on that file to create various reports:
 
 ```
-Usage: nixprof report [OPTIONS]
+Usage: lakeprof report [OPTIONS]
 
 Options:
   -i, --in FILENAME             log input filename
@@ -49,17 +45,17 @@ Options:
                                 write simulated traces to files with processor
                                 count as suffix.
   --all                         print all analyses, write all output files
-  --merge-into-pred TEXT        for each derivation with exactly one
+  --merge-into-pred TEXT        for each module with exactly one
                                 predecessor (dependency) and whose name
                                 matches the given regex, merge build time and
                                 dependents into that predecessor
-  --merge-into-succ TEXT        for each derivation with exactly one successor
+  --merge-into-succ TEXT        for each module with exactly one successor
                                 (dependent) and whose name matches the given
                                 regex, merge build time and dependencies into
                                 that successor
-  --help                        Show this message and exit.Usage: nixprof report [OPTIONS]
+  --help                        Show this message and exit.Usage: lakeprof report [OPTIONS]
 ```
-NOTE: In addition to the input log file, `report` will also use `nix path-info --json` to recover the dependency edges, so the build results still need to be available in the Nix store when running Nixprof.
+NOTE: In addition to the input log file, `report` will also use `lake query` to recover the dependency edges, so the build results still need to be available when running lakeprof.
 
 The following examples are from a flake build of [leanprover/lean4](https://github.com/leanprover/lean4).
 
@@ -68,7 +64,7 @@ The following examples are from a flake build of [leanprover/lean4](https://gith
 The *critical path* answers the question "Given sufficient parallelism, what is the chain of build steps that determines the total build time?"
 
 ``` sh
-$ nixprof report -p
+$ lakeprof report -p
 Critical path
   time [s]          [cum]          drv
 ----------  ----  -------  ------  ---------------------------------------------
@@ -175,10 +171,10 @@ However, there is no guarantee that this path is still the critical one after op
 ### Average Contribution to Critical Paths
 
 The critical path demonstrates contributions to the total build time, but what about partial rebuilds?
-If we assume that the sources of every derivation in the build graph are equally likely to be modified, we can compute the average contribution to a partial rebuild by averaging contributions to the critical paths starting from *each* derivation.
+If we assume that the sources of every module in the build graph are equally likely to be modified, we can compute the average contribution to a partial rebuild by averaging contributions to the critical paths starting from *each* module.
 
 ``` sh
-$ nixprof report -a
+$ lakeprof report -a
 Average contribution to critical paths
   time [s]          [cum]          drv
 ----------  ----  -------  ------  ---------------------------------------------
@@ -263,15 +259,15 @@ Average contribution to critical paths
 
 Note: the table is sorted by descending time, with items < 0.05s omitted.
 
-This output means that, since in this build graph most derivations correspond to a single source file, if I change a random file, 1.9s out of 23.5s are spent on rebuilding `Lean.PrettyPrinter.Delaborator.TopDownAnalyze` on average.
+This output means that if I change a random file, 1.9s out of 23.5s are spent on rebuilding `Lean.PrettyPrinter.Delaborator.TopDownAnalyze` on average.
 
 ### Simulated Build Parallelism
 
-The above analyses are independent of the number of available cores or parallel jobs configured in Nix, or how many of them were used when recording; you can think of them assuming an infinitely parallel build.
-Nixprof can give you an idea of the parallelism of your build by *simulating* build times for a given number of parallel jobs based on the recorded build graph and times.
+The above analyses are independent of the number of available cores or parallel jobs configured in Lake, or how many of them were used when recording; you can think of them assuming an infinitely parallel build.
+lakeprof can give you an idea of the parallelism of your build by *simulating* build times for a given number of parallel jobs based on the recorded build graph and times.
 
 ```sh
-$ nixprof report -s
+$ lakeprof report -s
 Simulated build times by processor count up optimal power of two
   #CPUs    time [s]    CPU% [avg]
 -------  ----------  ------------
@@ -295,11 +291,11 @@ Caveats:
 ### Dot Graph
 
 ``` sh
-$ nixprof report -d --tred --merge-into-succ '-cc|-depRoot'  # see above for flags
+$ lakeprof report -d --tred --merge-into-succ '-cc|-depRoot'  # see above for flags
 # display e.g. using `xdot`
-$ nix run nixpkgs#xdot nixprof.dot
+$ nix run nixpkgs#xdot lakeprof.dot
 # or convert to e.g. svg
-$ nix shell nixpkgs#graphviz -c dot -Tsvg < nixprof.dot > nixprof.svg
+$ nix shell nixpkgs#graphviz -c dot -Tsvg < lakeprof.dot > lakeprof.svg
 ```
 
 [![example dot graph](doc/dot.png)](doc/dot.svg)
@@ -311,7 +307,7 @@ My creativity was exhausted after that.
 ### Chrome Trace
 
 ``` sh
-$ nixprof report -c nixprof.trace_event
+$ lakeprof report -c lakeprof.trace_event
 ```
 
 Display in Chrome's `chrome://tracing` or on [perfetto.dev](https://ui.perfetto.dev) in any browser:
@@ -319,8 +315,3 @@ Display in Chrome's `chrome://tracing` or on [perfetto.dev](https://ui.perfetto.
 ![example trace](doc/chrome.png)
 
 This trace shows the actual start and end times of each build step, though the assignment to threads is simulated using the same scheduling algorithm as described above.
-Gaps in the trace, especially at the beginning, show Nix being busy with other stuff than strictly building.
-
----
-
-*...jack of all trades, professor of nix*

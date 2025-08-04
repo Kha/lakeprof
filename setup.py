@@ -1,10 +1,10 @@
 import setuptools
 
 setuptools.setup(
-    name="nixprof",
+    name="lakeprof",
     packages=["."],
     entry_points='''
         [console_scripts]
-        nixprof=nixprof:nixprof
+        lakeprof=lakeprof:lakeprof
     '''
 )

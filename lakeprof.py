@@ -59,20 +59,20 @@ def write_chrome_trace(g: networkx.DiGraph, out: TextIO, crit_path: List[str]):
     json.dump({"traceEvents": trace_events}, out)
 
 @click.group()
-def nixprof():
+def lakeprof():
     pass
 
-@nixprof.command(context_settings=dict(
+@lakeprof.command(context_settings=dict(
     ignore_unknown_options=True,
 ))
-@click.option("-o", "--out", default="nixprof.log", help="output filename", show_default=True)
+@click.option("-o", "--out", default="lakeprof.log", help="output filename", show_default=True)
 @click.argument("cmd", nargs=-1, type=click.UNPROCESSED)
 def record(cmd, out):
-    """Record timings of a `nix-build`/`nix build` invocation."""
-    subprocess.run(f"\\time {' '.join(cmd)} 2>&1 | ts -s -m \"[%.s]\" > {out}", shell=True, check=True)
+    """Record timings of a lake build` invocation."""
+    subprocess.run(f"\\time {' '.join(cmd)} 2>&1 | ts -s -m \"[%.s]\" | tee {out}", shell=True, check=True)
 
-DOTFILE = "nixprof.dot"
-CHROMEFILE = "nixprof.trace_event"
+DOTFILE = "lakeprof.dot"
+CHROMEFILE = "lakeprof.trace_event"
 
 def parse(input):
     g = networkx.DiGraph(rankdir="BT")
@@ -94,8 +94,8 @@ def parse(input):
 
     return g
 
-@nixprof.command()
-@click.option("-i", "--in", "input", default="nixprof.log", help="log input filename", type=click.File('r'))
+@lakeprof.command()
+@click.option("-i", "--in", "input", default="lakeprof.log", help="log input filename", type=click.File('r'))
 @click.option("-t", "--tred", help="remove transitive edges (can speed up and declutter dot graph display)", is_flag=True)
 @click.option("-p", "--print-crit-path", help="print critical (longest) path", is_flag=True)
 @click.option("-r", "--print-rebuild-crit-path", help="print critical (longest) path from module-system-aware rebuilds", is_flag=True)
@@ -104,8 +104,8 @@ def parse(input):
 @click.option("-d", "--save-dot", is_flag=False, flag_value=DOTFILE, help="write dot graph to file", type=click.File('w'))
 @click.option("-c", "--save-chrome-trace", is_flag=False, flag_value=CHROMEFILE, help="write `chrome://tracing`'s `trace_event` format to file. When combined with `-s`, also write simulated traces to files with processor count as suffix.")
 @click.option("--all", help="print all analyses, write all output files", is_flag=True)
-@click.option("--merge-into-pred", help="for each derivation with exactly one predecessor (dependency) and whose name matches the given regex, merge build time and dependents into that predecessor")
-@click.option("--merge-into-succ", help="for each derivation with exactly one successor (dependent) and whose name matches the given regex, merge build time and dependencies into that successor")
+@click.option("--merge-into-pred", help="for each module with exactly one predecessor (dependency) and whose name matches the given regex, merge build time and dependents into that predecessor")
+@click.option("--merge-into-succ", help="for each module with exactly one successor (dependent) and whose name matches the given regex, merge build time and dependencies into that successor")
 @click.option("--filter")
 def report(input: TextIO, tred, print_crit_path, print_rebuild_crit_path, print_avg_crit, print_sim_times, save_dot, save_chrome_trace, all, merge_into_pred, merge_into_succ, filter):
     """Report various metrics of a recorded log."""
@@ -290,9 +290,9 @@ def report(input: TextIO, tred, print_crit_path, print_rebuild_crit_path, print_
         g_sim = simulate(g, max_nproc=None, keep_start=True)
         write_chrome_trace(g_sim, open(save_chrome_trace or CHROMEFILE, 'w'), crit_path)
 
-@nixprof.command()
+@lakeprof.command()
 @click.argument("base", type=click.File('r'))
-@click.argument("curr", default="nixprof.log", type=click.File('r'))
+@click.argument("curr", default="lakeprof.log", type=click.File('r'))
 @click.option("-m", "--matching", help="report only derivations whose names match the given regex")
 def diff(base, curr, matching):
     """Report timing differences between two recorded logs."""
@@ -316,4 +316,4 @@ def diff(base, curr, matching):
     print()
 
 if __name__ == '__main__':
-    nixprof()
+    lakeprof()
