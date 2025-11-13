@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 
-from collections import defaultdict
 import heapq
+import json
 import re
 import subprocess
-import json
+from collections import defaultdict
 from typing import List, TextIO, Union
-import networkx
+
 import click
+import networkx
 from tabulate import tabulate
+
 
 def simulate(g: networkx.DiGraph, max_nproc: Union[int, None], keep_start: bool = False) -> networkx.DiGraph:
     g = g.copy()
@@ -101,13 +103,14 @@ def parse(input):
 @click.option("-r", "--print-rebuild-crit-path", help="print critical (longest) path from module-system-aware rebuilds", is_flag=True)
 @click.option("-a", "--print-avg-crit", help="print average contribution to critical paths", is_flag=True)
 @click.option("-s", "--print-sim-times", help="print simulated build times by processor count up to optimal count", is_flag=True)
+@click.option("-j", "--json", "print_as_json", help="print output as json instead of a text-based table", is_flag=True)
 @click.option("-d", "--save-dot", is_flag=False, flag_value=DOTFILE, help="write dot graph to file", type=click.File('w'))
 @click.option("-c", "--save-chrome-trace", is_flag=False, flag_value=CHROMEFILE, help="write `chrome://tracing`'s `trace_event` format to file. When combined with `-s`, also write simulated traces to files with processor count as suffix.")
 @click.option("--all", help="print all analyses, write all output files", is_flag=True)
 @click.option("--merge-into-pred", help="for each module with exactly one predecessor (dependency) and whose name matches the given regex, merge build time and dependents into that predecessor")
 @click.option("--merge-into-succ", help="for each module with exactly one successor (dependent) and whose name matches the given regex, merge build time and dependencies into that successor")
 @click.option("--filter")
-def report(input: TextIO, tred, print_crit_path, print_rebuild_crit_path, print_avg_crit, print_sim_times, save_dot, save_chrome_trace, all, merge_into_pred, merge_into_succ, filter):
+def report(input: TextIO, tred, print_crit_path, print_rebuild_crit_path, print_avg_crit, print_sim_times, print_as_json, save_dot, save_chrome_trace, all, merge_into_pred, merge_into_succ, filter):
     """Report various metrics of a recorded log."""
     g = parse(input)
 
@@ -154,7 +157,6 @@ def report(input: TextIO, tred, print_crit_path, print_rebuild_crit_path, print_
         filter_fn = lambda x: True
     crit_path: List[str] = [v for v in reversed(networkx.dag_longest_path(g, weight="time")) if filter_fn(v)]
     if print_crit_path or all:
-        print("Critical path")
         max_time = sum([g.nodes[u]["time"] for u in crit_path])
         cum_time = 0
         tab = []
@@ -162,8 +164,12 @@ def report(input: TextIO, tred, print_crit_path, print_rebuild_crit_path, print_
             time = g.nodes[u]["time"]
             cum_time += time
             tab.append((time, time / max_time, cum_time, cum_time / max_time, g.nodes[u]["drv_name"]))
-        print(tabulate(tab, headers=["time [s]", "", "[cum]", "", "drv"], floatfmt=[".1f", ".1%", ".1f", ".1%"]))
-        print()
+        if print_as_json:
+            print(json.dumps(tab))
+        else:
+            print("Critical path")
+            print(tabulate(tab, headers=["time [s]", "", "[cum]", "", "drv"], floatfmt=[".1f", ".1%", ".1f", ".1%"]))
+            print()
 
     if print_rebuild_crit_path or all:
         # Compute longest path explicitly by iterating over the topological sort
@@ -214,7 +220,6 @@ def report(input: TextIO, tred, print_crit_path, print_rebuild_crit_path, print_
             end = prev[end[1]][end[0]]
         rebuild_crit_path = list(reversed(rebuild_crit_path))
 
-        print("rebuild critical path")
         max_time = sum([g.nodes[u]["time"] for u, _ in rebuild_crit_path])
         cum_time = 0
         tab = []
@@ -222,8 +227,12 @@ def report(input: TextIO, tred, print_crit_path, print_rebuild_crit_path, print_
             time = g.nodes[u]["time"]
             cum_time += time
             tab.append((time, time / max_time, cum_time, cum_time / max_time, g.nodes[u]["drv_name"] + (f" [{cat}]" if cat != "public" else "")))
-        print(tabulate(tab, headers=["time [s]", "", "[cum]", "", "drv"], floatfmt=[".1f", ".1%", ".1f", ".1%"]))
-        print()
+        if print_as_json:
+            print(json.dumps(tab))
+        else:
+            print("rebuild critical path")
+            print(tabulate(tab, headers=["time [s]", "", "[cum]", "", "drv"], floatfmt=[".1f", ".1%", ".1f", ".1%"]))
+            print()
 
 
     if print_avg_crit or all:
@@ -234,7 +243,6 @@ def report(input: TextIO, tred, print_crit_path, print_rebuild_crit_path, print_
                 if filter_fn(v):
                     avg_contrib[v] += g.nodes[v]["time"] / len(g.nodes)
 
-        print("Average contribution to critical paths")
         total_contrib = sum(avg_contrib.values())
         cum_contrib = 0
         tab = []
@@ -244,11 +252,14 @@ def report(input: TextIO, tred, print_crit_path, print_rebuild_crit_path, print_
                 break
             cum_contrib += t
             tab.append((t, t / total_contrib, cum_contrib, cum_contrib / total_contrib, g.nodes[u]["drv_name"]))
-        print(tabulate(tab, headers=["time [s]", "", "[cum]", "", "drv"], floatfmt=[".1f", ".1%", ".1f", ".1%"]))
-        print()
+        if print_as_json:
+            print(json.dumps(tab))
+        else:
+            print("Average contribution to critical paths")
+            print(tabulate(tab, headers=["time [s]", "", "[cum]", "", "drv"], floatfmt=[".1f", ".1%", ".1f", ".1%"]))
+            print()
 
     if print_sim_times or all:
-        print("Simulated build times by processor count up optimal power of two")
         cum_time = sum(d["time"] for _, d in g.nodes(data=True))
         tab = []
         nproc = 1
@@ -263,8 +274,12 @@ def report(input: TextIO, tred, print_crit_path, print_rebuild_crit_path, print_
             if save_chrome_trace or all:
                 write_chrome_trace(gs, open(f"{save_chrome_trace or CHROMEFILE}.{nproc}", 'w'), crit_path)
             nproc *= 2
-        print(tabulate(tab, headers=["#CPUs", "time [s]", "CPU% [avg]"], floatfmt=["", "f", ".0%"]))
-        print()
+        if print_as_json:
+            print(json.dumps(tab))
+        else:
+            print("Simulated build times by processor count up optimal power of two")
+            print(tabulate(tab, headers=["#CPUs", "time [s]", "CPU% [avg]"], floatfmt=["", "f", ".0%"]))
+            print()
 
     if save_dot or all:
         for u in g.nodes:
