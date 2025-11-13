@@ -36,9 +36,9 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "click", specifier = ">=8.2.1" },
-    { name = "networkx", specifier = ">=3.5" },
-    { name = "pydot", specifier = ">=4.0.1" },
+    { name = "click", specifier = ">=8.1.8" },
+    { name = "networkx", specifier = ">=3.4.2" },
+    { name = "pydot", specifier = ">=3.0.4" },
     { name = "tabulate", specifier = ">=0.9.0" },
 ]
 
