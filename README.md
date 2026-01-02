@@ -4,6 +4,25 @@ lakeprof is a tool for profiling and visualizing build times spent on a Lake bui
 
 ## Installation
 
+### `uv`
+
+To use lakeprof via [`uv`](https://docs.astral.sh/uv/), prefix each `lakeprof` invocation below with
+```
+uvx --from git+https://github.com/Kha/lakeprof
+```
+e.g. as in
+``` sh
+uvx --from git+https://github.com/Kha/lakeprof lakeprof record lake build
+```
+
+Alternatively, install `lakeprof` once using
+```
+uv tool install --from git+https://github.com/Kha/lakeprof lakeprof
+```
+
+### Nix
+
+Run
 ``` sh
 nix shell github:Kha/lakeprof
 ```
