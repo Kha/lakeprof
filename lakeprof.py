@@ -4,6 +4,8 @@ import heapq
 import json
 import re
 import subprocess
+import sys
+import time
 from collections import defaultdict
 from typing import List, TextIO, Union
 
@@ -71,7 +73,22 @@ def lakeprof():
 @click.argument("cmd", nargs=-1, type=click.UNPROCESSED)
 def record(cmd, out):
     """Record timings of a lake build` invocation."""
-    subprocess.run(f"set -o pipefail; \\time {' '.join(cmd)} 2>&1 | ts -s -m \"[%.s]\" | tee {out}", shell=True, check=True)
+    start_time = time.monotonic()
+
+    with open(out, 'w') as outfile:
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            # line buffering
+            text=True, bufsize=1)
+
+        for line in process.stdout:
+            line = f"[{(time.monotonic() - start_time):.3f}] {line}"
+            outfile.write(line)
+            outfile.flush()  # allow for early aborts
+            sys.stderr.write(line)
+
+        return_code = process.wait()
+        if return_code != 0:
+            raise subprocess.CalledProcessError(return_code, cmd)
 
 DOTFILE = "lakeprof.dot"
 CHROMEFILE = "lakeprof.trace_event"
