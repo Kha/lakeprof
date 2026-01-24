@@ -50,7 +50,7 @@ def write_chrome_trace(g: networkx.DiGraph, out: TextIO, crit_path: List[str]):
     def mk_event(d, tid=None):
         return {
             "name": d["drv_name"],
-            "cat": "build",
+            "cat": d.get("kind", "build"),
             "ph": "X",
             "ts": d["start"] * 1000000,
             "dur": d["time"] * 1000000,
@@ -93,23 +93,36 @@ def record(cmd, out):
 DOTFILE = "lakeprof.dot"
 CHROMEFILE = "lakeprof.trace_event"
 
+# Make sure that dependent steps start after dependency stops; Lake build time reports are not
+# perfectly accurate
+def add_dep(g, n, m, **kwargs):
+    g.nodes[n]["start"] = max(g.nodes[n]["start"], g.nodes[m]["stop"])
+    g.add_edge(n, m, **kwargs)
+
 def parse(input):
     g = networkx.DiGraph(rankdir="BT")
     for line in input.readlines():
-        if m := re.match(r"\[([^]]*)\] .* Built ([\w.]+) \(([0-9.]+)(m?)s\)", line):
+        if m := re.match(r"\[([^]]*)\] .* Built ([\w.]+(:[\w.]+)?) \(([0-9.]+)(m?)s\)", line):
+            kind = m.group(3)
+            if kind:
+                kind = kind[1:]  # skip leading colon
             stop = float(m.group(1))
             drv = m.group(2)
-            dur = float(m.group(3))
-            if m.group(4) == "m":
+            dur = float(m.group(4))
+            if m.group(5) == "m":
                 dur /= 1000
-            g.add_node(drv, drv_name=drv, start=stop - dur, stop=stop, time=dur)
+            g.add_node(drv, drv_name=drv, kind=kind, start=stop - dur, stop=stop, time=dur)
+            if kind == "c.o":
+                add_dep(g, drv, drv[:-4])
 
-    lake_out = subprocess.check_output(["lake", "query",  "--no-build", "--json"] + [f"+{drv}:header" for drv in g], text=True)
-    for drv, header in zip(g, lake_out.split("\n")):
+    mods = [drv for drv in g.nodes if g.nodes[drv].get("kind") is None]
+    lake_out = subprocess.check_output(["lake", "query",  "--no-build", "--json"] + [f"+{drv}:header" for drv in mods], text=True)
+    for drv, header in zip(mods, lake_out.split("\n")):
         header = json.loads(header)
         for i in header["imports"]:
+            print((drv, i))
             if i["module"] in g:
-                g.add_edge(drv, i["module"], **i)
+                add_dep(g, drv, i["module"], **i)
 
     return g
 
@@ -204,14 +217,14 @@ def report(input: TextIO, tred, print_crit_path, print_rebuild_crit_path, print_
             for (u, _, data) in g.in_edges(v, data=True):
                 if not filter_fn(u):
                     continue
-                if data["isExported"]:
-                    pub_cat = "public" if not data["isMeta"] else "meta"
+                if data.get("isExported"):
+                    pub_cat = "public" if not data.get("isMeta") else "meta"
                     pub_dist = dist[pub_cat][v] + g.nodes[u]["time"]
                     if pub_dist > dist["public"][u]:
                         dist["public"][u] = pub_dist
                         prev["public"][u] = (v, pub_cat)
 
-                priv_cat = "meta" if data["isMeta"] else "private" if data["importAll"] else "public"
+                priv_cat = "meta" if data.get("isMeta") else "private" if data.get("importAll") else "public"
                 priv_dist = dist[priv_cat][v] + g.nodes[u]["time"]
                 if priv_dist > dist["private"][u]:
                     dist["private"][u] = priv_dist
