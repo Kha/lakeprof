@@ -120,7 +120,6 @@ def parse(input):
     for drv, header in zip(mods, lake_out.split("\n")):
         header = json.loads(header)
         for i in header["imports"]:
-            print((drv, i))
             if i["module"] in g:
                 add_dep(g, drv, i["module"], **i)
 
