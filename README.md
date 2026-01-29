@@ -187,6 +187,9 @@ Critical path
 This chain gives you an idea of how to speed up the build by speeding up or avoiding an element of it.
 However, there is no guarantee that this path is still the critical one after optimization, so the speedup might be less than expected.
 
+The *rebuild critical path* (`-r`) does the same calculation assuming a previous build of the package is available and only the file at the head of the path is changed (in a way that its public interface is affected).
+Thus this path is cut short by `private import`s, though a later `meta import` may continue it as it represents a dependency on the full closure of imports.
+
 ### Average Contribution to Critical Paths
 
 The critical path demonstrates contributions to the total build time, but what about partial rebuilds?
