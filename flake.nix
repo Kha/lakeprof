@@ -1,38 +1,41 @@
 {
   description = "A Lake build graph profiler";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-  inputs.flake-utils.url = "github:numtide/flake-utils";
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+  };
 
   outputs =
+    inputs:
+    let
+      lib = inputs.nixpkgs.lib;
+      forAllSystems = lib.genAttrs lib.systems.flakeExposed;
+    in
     {
-      self,
-      nixpkgs,
-      flake-utils,
-    }:
-    flake-utils.lib.eachDefaultSystem (
-      system:
-      let
-        pkgs = import nixpkgs { inherit system; };
-      in
-      rec {
-        packages.lakeprof = pkgs.python3Packages.buildPythonApplication {
-          name = "lakeprof";
-          src = ./.;
+      packages = forAllSystems (
+        system:
+        let
+          pkgs = inputs.nixpkgs.legacyPackages.${system};
+        in
+        rec {
+          default = packages.lakeprof;
 
-          pyproject = true;
-          build-system = with pkgs.python3Packages; [ setuptools ];
-          dependencies = with pkgs.python3Packages; [
-            click
-            networkx
-            pydot
-            tabulate
-          ];
+          packages.lakeprof = pkgs.python3Packages.buildPythonApplication {
+            name = "lakeprof";
+            src = ./.;
 
-          propagatedBuildInputs = with pkgs; [ moreutils ];
-        };
+            pyproject = true;
+            build-system = with pkgs.python3Packages; [ setuptools ];
+            dependencies = with pkgs.python3Packages; [
+              click
+              networkx
+              pydot
+              tabulate
+            ];
 
-        defaultPackage = packages.lakeprof;
-      }
-    );
+            propagatedBuildInputs = with pkgs; [ moreutils ];
+          };
+        }
+      );
+    };
 }
